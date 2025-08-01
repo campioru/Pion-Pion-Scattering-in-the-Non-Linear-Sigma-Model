@@ -1,0 +1,9 @@
+**/*.pdf
+**/*.spydata
+**/*.exe
+**/*.csv
+**/*.xlsx
+**/*.npy
+**/*.cmbl
+**/*.tar
+**/*.txt
