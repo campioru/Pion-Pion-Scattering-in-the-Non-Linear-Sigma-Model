@@ -132,21 +132,25 @@ void mse_err(const vector<int>& vec, const double& mean, double& mse, double& er
 }
 
 
+double random_v0(const double& rho, int& rejections)
+{
+  double A, U, v0;
+  rejections --;
+  do
+  {
+    A = n_dist(r);
+    U = u_dist(r);
+    v0 = 1. - (A*A + e_dist(r)) / rho;
+    rejections ++;
+  }
+  while (2*U*U > v0 + 1.);
+  return v0;
+}
+
 SU2 random_SU2(const double& ρ, int& rejections)
 {
-  rejections --;
   valarray<double> v(4);
-  {
-    double U, A;
-    do
-    {
-      A = n_dist(r);
-      U = u_dist(r);
-      v[0] = 1. - (A*A + e_dist(r)) / ρ;
-      rejections ++;
-    }
-    while (2*U*U > v[0] + 1.);
-  }
+  v[0] = random_v0(ρ, rejections);
   v[1] = n1_dist(r);
   {
     double θ = θ_dist(r);
@@ -171,7 +175,7 @@ SU2 GibbsStep(Field& σ, vector<int>& coord, int& rejections)
   return random_SU2(σ.beta() * sqrtdet, rejections) * SU2(Σ / sqrtdet);
 }
 
-void GibbsCorrelation(Field& σ, const int& N, const int& disc, vector<vector<double>>& c_means, vector<vector<vector<double>>>& c_mses, vector<vector<vector<double>>>& c_mse_errs, double& rej_mean, vector<double>& rej_mses, vector<double>& rej_mse_errs)
+void GibbsCorrelation(Field& σ, const int& N, const int& disc, vector<vector<double>>& c_means, vector<vector<vector<double>>>& c_mses, vector<vector<vector<double>>>& c_mse_errs, double& rej_mean, vector<double>& rej_mses, vector<double>& rej_mse_errs, vector<vector<double>>& am_means, vector<vector<double>>& am_mses)
 {
   auto start = chrono::steady_clock::now();
   vector<int> coord;
@@ -184,7 +188,6 @@ void GibbsCorrelation(Field& σ, const int& N, const int& disc, vector<vector<do
       σ(x) = GibbsStep(σ, coord, disc_rej);
       coord_update(coord, σ);
     }
-    cout << n << "\n";
   }
   chrono::duration<double> time = chrono::steady_clock::now() - start;
   cout << "Discarding: " << time.count() << " seconds\n";
@@ -192,7 +195,7 @@ void GibbsCorrelation(Field& σ, const int& N, const int& disc, vector<vector<do
   start = chrono::steady_clock::now();
   vector<vector<double>> Φs(σ.T());
   for (int t = 0; t < σ.T(); t ++) Φs[t] = vector<double>(4);
-  for (int i = 0; i < 4; i ++)
+  for (int i = 0; i < 5; i ++)
   {
     for (int δ = 0; δ < σ.Delta(); δ ++) c_means[i][δ] = 0.;
   }
@@ -216,20 +219,22 @@ void GibbsCorrelation(Field& σ, const int& N, const int& disc, vector<vector<do
       coord_update(coord, σ);
     }
 
-    cs[n] = vector<vector<double>>(4);
-    for (int i = 0; i < 4; i ++)
+    cs[n] = vector<vector<double>>(5);
+    for (int i = 0; i < 5; i ++)
     {
       cs[n][i] = vector<double>(σ.Delta());
       for (int δ = 0; δ < σ.Delta(); δ ++) cs[n][i][δ] = 0.;
     }
 
-    for (int i = 0; i < 4; i ++)
+    for (int δ = 0; δ < σ.Delta(); δ ++)
     {
-      for (int δ = 0; δ < σ.Delta(); δ ++)
+      for (int i = 0; i < 4; i ++)
       {
         for (int t = 0; t < σ.T(); t ++) cs[n][i][δ] += Φs[t][i] * Φs[(t+δ) % σ.T()][i];
-        c_means[i][δ] += cs[n][i][δ];
       }
+      for (int i = 1; i < 4; i ++) cs[n][4][δ] += cs[n][i][δ];
+      cs[n][4][δ] /= 3.;
+      for (int i = 0; i < 5; i ++) c_means[i][δ] += cs[n][i][δ];
     }
     rej_mean += rs[n];
   }
@@ -238,7 +243,7 @@ void GibbsCorrelation(Field& σ, const int& N, const int& disc, vector<vector<do
 
   start = chrono::steady_clock::now();
   int K = int(.5 + log2(double(N)));
-  for (int i = 0; i < 4; i ++)
+  for (int i = 0; i < 5; i ++)
   {
     for (int δ = 0; δ < σ.Delta(); δ ++)
     {
@@ -254,8 +259,12 @@ void GibbsCorrelation(Field& σ, const int& N, const int& disc, vector<vector<do
         c.resize(M);
       }
     }
+    for (int n = 0; n < N; n ++) cs[n][i].resize(3);
   }
+  time = chrono::steady_clock::now() - start;
+  cout << "Correlation binning: " << time.count() << " seconds\n";
 
+  start = chrono::steady_clock::now();
   rej_mean /= N;
   int M = N;
   for (int k = 0; k < K; k ++)
@@ -266,117 +275,39 @@ void GibbsCorrelation(Field& σ, const int& N, const int& disc, vector<vector<do
     rs.resize(M);
   }
   time = chrono::steady_clock::now() - start;
-  cout << "Binning: " << time.count() << " seconds";
-}
+  cout << "Rejection binning: " << time.count() << " seconds\n";
 
-
-int main()
-{
-  int K = 22;
-  int N = int(.5 + pow(2., double(K)));
-  int disc = int(.1 * N);
-
-  int L = 10;
-  int T = 20;
-  vector<vector<int>> sizes = {{L, L, T}};
-  vector<double> betas = {1.};
-  vector<double> lambdas = {0.};
-
-  ofstream means, mses, mse_errs, rej;
-  means.open("means.csv");
-  mses.open("mses.csv");
-  mse_errs.open("mse_errs.csv");
-  rej.open("rej.csv");
-  means << disc << " discarded," << N << " iterations\n\n";
-  mses << disc << " discarded," << N << " iterations\n\n";
-  mse_errs << disc << " discarded," << N << " iterations\n\n";
-  rej << disc << " discarded," << N << " iterations\n\n";
-  means.precision(10);
-  mses.precision(10);
-  mse_errs.precision(10);
-  rej.precision(10);
-  vector<vector<vector<vector<vector<double>>>>> c_means(sizes.size());
-  vector<vector<vector<vector<vector<vector<double>>>>>> c_mses(sizes.size());
-  vector<vector<vector<vector<vector<vector<double>>>>>> c_mse_errs(sizes.size());
-  vector<vector<vector<double>>> rej_means(sizes.size());
-  vector<vector<vector<vector<double>>>> rej_mses(sizes.size());
-  vector<vector<vector<vector<double>>>> rej_mse_errs(sizes.size());
-  vector<vector<vector<chrono::duration<double>>>> times(sizes.size());
-  for (int size = 0; size < sizes.size(); size ++)
+  start = chrono::steady_clock::now();
+  M = N;
+  for (int k = 0; k < K; k ++)
   {
-    c_means[size] = vector<vector<vector<vector<double>>>>(betas.size());
-    c_mses[size] = vector<vector<vector<vector<vector<double>>>>>(betas.size());
-    c_mse_errs[size] = vector<vector<vector<vector<vector<double>>>>>(betas.size());
-    rej_means[size] = vector<vector<double>>(betas.size());
-    rej_mses[size] = vector<vector<vector<double>>>(betas.size());
-    rej_mse_errs[size] = vector<vector<vector<double>>>(betas.size());
-    times[size] = vector<vector<chrono::duration<double>>>(betas.size());
-    for (int β = 0; β < betas.size(); β ++)
+    vector<double> cj(3);
+    vector<double> amj(M);
+    for (int i = 0; i < 5; i ++)
     {
-      c_means[size][β] = vector<vector<vector<double>>>(lambdas.size());
-      c_mses[size][β] = vector<vector<vector<vector<double>>>>(lambdas.size());
-      c_mse_errs[size][β] = vector<vector<vector<vector<double>>>>(lambdas.size());
-      rej_means[size][β] = vector<double>(lambdas.size());
-      rej_mses[size][β] = vector<vector<double>>(lambdas.size());
-      rej_mse_errs[size][β] = vector<vector<double>>(lambdas.size());
-      times[size][β] = vector<chrono::duration<double>>(lambdas.size());
-      for (int λ = 0; λ < lambdas.size(); λ ++)
+      am_means[i][k] = 0.;
+      for (int n = 0; n < M; n ++)
       {
-        Field sigma(sizes[size], betas[β], lambdas[λ]);
+        for (int δ = 0; δ <= 2; δ ++) cj[δ] = ((M*c_means[i][δ]) - cs[n][i][δ]) / (M - 1.);
+        amj[n] = log((cj[0] - cj[2] + sqrt(pow(cj[0] - cj[2], 2.) - 4.*(cj[1]-cj[2])*(cj[0]-cj[1]))) / (2.*(cj[1] - cj[2])));
+        am_means[i][k] += amj[n];
+      }
+      am_means[i][k] /= M;
 
-        c_means[size][β][λ] = vector<vector<double>>(4);
-        c_mses[size][β][λ] = vector<vector<vector<double>>>(4);
-        c_mse_errs[size][β][λ] = vector<vector<vector<double>>>(4);
-        rej_mses[size][β][λ] = vector<double>(K);
-        rej_mse_errs[size][β][λ] = vector<double>(K);
-        for (int i = 0; i < 4; i ++)
-        {
-          c_means[size][β][λ][i] = vector<double>(sigma.Delta());
-          c_mses[size][β][λ][i] = vector<vector<double>>(sigma.Delta());
-          c_mse_errs[size][β][λ][i] = vector<vector<double>>(sigma.Delta());
-          for (int δ = 0; δ < sigma.Delta(); δ ++)
-          {
-            c_mses[size][β][λ][i][δ] = vector<double>(K);
-            c_mse_errs[size][β][λ][i][δ] = vector<double>(K);
-          }
-        }
-
-        cout << "\nd = " << sizes[size].size() << ", β = " << betas[β] << ", λ = " << lambdas[λ] << "\n";
-        auto start = chrono::steady_clock::now();
-        GibbsCorrelation(sigma, N, disc, c_means[size][β][λ], c_mses[size][β][λ], c_mse_errs[size][β][λ], rej_means[size][β][λ], rej_mses[size][β][λ], rej_mse_errs[size][β][λ]);
-        times[size][β][λ] = chrono::steady_clock::now() - start;
-
-        means << "d = " << sizes[size].size() << ",L = " << L << ",T = " << T << ",β = " << betas[β] << ",λ = " << lambdas[λ] << ",time = " << times[size][β][λ].count() << "seconds\n";
-        for (int i = 0; i < 4; i ++)
-        {
-          mses << "d = " << sizes[size].size() << ",L = " << L << ",T = " << T << ",β = " << betas[β] << ",λ = " << lambdas[λ] << ",i = " << i << "\n";
-          mse_errs << "d = " << sizes[size].size() << ",L = " << L << ",T = " << T << ",β = " << betas[β] << ",λ = " << lambdas[λ] << ",i = " << (i+1) << "\n";
-          for (int δ = 0; δ < sigma.Delta(); δ ++)
-          {
-            means << c_means[size][β][λ][i][δ] << ",";
-            for (int k = 0; k < K; k ++)
-            {
-              mses << c_mses[size][β][λ][i][δ][k] << ",";
-              mse_errs << c_mse_errs[size][β][λ][i][δ][k] << ",";
-            }
-            mses << "\n";
-            mse_errs << "\n";
-          }
-          means << "\n";
-        }
-        rej << "d = " << sizes[size].size() << ",L = " << L << ",T = " << T << ",β = " << betas[β] << ",λ = " << lambdas[λ] << "\n";
-        rej << rej_means[size][β][λ] << "\n";
-        for (int k = 0; k < K; k ++) rej << rej_mses[size][β][λ][k] << ",";
-        rej << "\n";
-        for (int k = 0; k < K; k ++) rej << rej_mse_errs[size][β][λ][k] << ",";
-        rej << "\n";
+      am_mses[i][k] = 0.;
+      for (int n = 0; n < M; n ++) am_mses[i][k] += pow(am_means[i][k] - amj[n], 2.);
+      am_mses[i][k] *= (M - 1.) / double(M);
+    }
+    M /= 2;
+    for (int n = 0; n < M; n ++)
+    {
+      for (int i = 0; i < 5; i ++)
+      {
+        for (int δ = 0; δ <= 2; δ ++) cs[n][i][δ] = .5 * (cs[2*n][i][δ] + cs[2*n + 1][i][δ]);
       }
     }
+    cs.resize(M);
   }
-  means.close();
-  mses.close();
-  mse_errs.close();
-  rej.close();
-
-  return 0;
+  time = chrono::steady_clock::now() - start;
+  cout << "Mass jackknifing: " << time.count() << " seconds\n";
 }

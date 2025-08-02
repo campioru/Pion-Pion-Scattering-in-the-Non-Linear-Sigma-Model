@@ -1,8 +1,17 @@
 import numpy as np
 import statistics as stat
-import matplotlib.pyplot as plt
-from matplotlib.lines import Line2D
-import time
+
+
+def mse_err(array):
+    """Mean squared error and mean squared error error.
+
+    For a given array, returns the mean squared error and its corresponding
+    error for the sample mean estimator.
+    """
+    mean, var, M = stat.fmean(array), stat.variance(array), len(array)
+    return (var/M,
+            (((stat.fmean((array-mean)**4.))
+              - ((var**2.) * (M-3.))/(M-1.)) / (M**3.)) ** .5)
 
 
 def index(coord, shape):
@@ -206,79 +215,3 @@ def Correlation(shape, am, ε, N):
     for d in range(D):
         c_means[d] /= N
     return c_means
-
-L = 10
-am = .1
-am_string = "0.1"
-εs = [-1., 1.]
-ε_strings = ["", "1"]
-Ns = 2 ** np.linspace(4, 14, 11, dtype=int)
-c_means_ps = np.empty((2, 2, 2, 6))
-c_means_pc = np.empty((2, 2, 3, 6))
-times_p = np.empty((2, 2, 2, len(Ns)))
-colours = ["r", "b", "maroon", "navy"]
-
-for ε, ε_ in enumerate(εs):
-    for N, N_ in enumerate(Ns):
-        times_p[0, 0, ε, N] = -time.time()
-        temp = Correlation((L, L), am, ε_, N_)
-        for i in range(2):
-            c_means_ps[0, ε, i] = temp[i]
-        del temp
-        times_p[0, 0, ε, N] += time.time()
-        print("s", "g", ε_, N_)
-        times_p[0, 1, ε, N] = -time.time()
-        c_means_ps[1, ε] = SquareCorrelation(L, am, ε_, N_)
-        times_p[0, 1, ε, N] += time.time()
-        print("s", "o", ε_, N_)
-
-        times_p[1, 0, ε, N] = -time.time()
-        temp = Correlation((L, L, L), am, ε_, N_)
-        for i in range(3):
-            c_means_pc[0, ε, i] = temp[i]
-        del temp
-        times_p[1, 0, ε, N] += time.time()
-        print("c", "g", ε_, N_)
-        times_p[1, 1, ε, N] = -time.time()
-        c_means_pc[1, ε] = CubeCorrelation(L, am, ε_, N_)
-        times_p[1, 1, ε, N] += time.time()
-        print("c", "o", ε_, N_)
-
-c_means_cs = np.empty(np.shape(c_means_ps))
-c_means_cc = np.empty(np.shape(c_means_pc))
-times_c = np.empty(np.shape(times_p))
-
-
-fig, ax = plt.subplots(2, 2, figsize=(10, 6), sharex=True, sharey="row",
-                       constrained_layout=True)
-lines = []
-labels = []
-for i in range(4):
-    lines.append(Line2D([0], [0], color=colours[i], linestyle="solid",
-                        marker="o"))
-labels.append("Python,\nmethod 1")
-labels.append("Python,\nmethod 2")
-labels.append("C++,\nmethod 1")
-labels.append("C++,\nmethod 2")
-fig.legend(lines, labels, loc="center left", bbox_to_anchor=(1, .5),
-           fontsize="x-small")
-ax[0, 0].set_title(r"Metropolis-Hastings, $%s\times%s$" % (L, L))
-ax[1, 0].set_title(r"Metropolis-Hastings, $%s\times%s\times%s$" % (L, L, L))
-ax[0, 1].set_title(r"Gibbs, $%s\times%s$" % (L, L))
-ax[1, 1].set_title(r"Gibbs, $%s\times%s\times%s$" % (L, L, L))
-for ε in range(2):
-    ax[1, ε].set_xscale("log", base=2)
-    ax[1, ε].set_xlim(Ns[0], Ns[-1])
-    ax[1, ε].set_xlabel(r"$N$")
-for d in range(2):
-    ax[d, 0].set_yscale("log")
-    ax[d, 0].set_ylabel("Runtime, s")
-    for ε in range(2):
-        for o in range(2):
-            ax[d, ε].plot(Ns, times_p[d, o, 1-ε], "-o", color=colours[o])
-        for o in range(2):
-            ax[d, ε].plot(Ns, times_c[d, o, 1-ε], "-o", color=colours[o+2])
-fig.suptitle(r"$am=%s$" % am_string)
-plt.savefig("Runtime (am = %s).pdf" % am, bbox_inches="tight")
-plt.close()
-del fig, ax, lines, labels
