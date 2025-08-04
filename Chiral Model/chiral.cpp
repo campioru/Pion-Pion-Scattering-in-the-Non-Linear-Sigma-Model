@@ -60,6 +60,29 @@ class Field
       return Σ;
     }
 
+    void pos_evol_(const vector<valarray<double>>& π_, const double& ε)
+    {
+      for (int x = 0; x < L_total_; x ++)
+      {
+        valarray<double> α = ε*π_[x];
+        double mag = sqrt((α*α).sum());
+        double sinα = sin(mag)/mag;
+        φ_[x] = φ_[x] * SU2({cos(mag), sinα*α[1], sinα*α[2], sinα*α[3]});
+      }
+    }
+    void mom_evol_(vector<valarray<double>>& π_, const double& ε)
+    {
+      for (int x = 0; x < L_total_; x ++)
+      {
+        valarray<double> u = φ_[x].comp(), Σ = Sigma_(x);
+        π_[x] -= β_*ε*valarray<double>{
+          -u[0]*Σ[1] + u[1]*Σ[0] + u[2]*Σ[3] - u[3]*Σ[2],
+          -u[0]*Σ[2] - u[1]*Σ[3] + u[2]*Σ[0] + u[3]*Σ[1],
+          -u[0]*Σ[3] + u[1]*Σ[2] - u[2]*Σ[1] + u[3]*Σ[0],
+        };
+      }
+    }
+
   public:
     Field(const vector<int>& L, const double& β, const double& λ) : d_(L.size()), L_total_(1), L_(L), β_(β), λ_(λ)
     {
@@ -172,6 +195,35 @@ class Field
         S -= β_*((Σ*(φ_[x].comp() - curr)).sum());
       }
       return gen;
+    }
+
+    int HMC_Sweep(double& S, const double& Δt, const int& Nt)
+    {
+      vector<valarray<double>> π_(L_total_, valarray<double>(3));
+      for (int x = 0; x < L_total_; x ++) for (int i = 0; i < 3; i ++) π_[x][i] = standard_normal(r);
+      vector<valarray<double>> π = π_;
+      vector<SU2> φ = φ_;
+      pos_evol_(π_, Δt/2.);
+      for (int nt = 1; nt < Nt; nt ++)
+      {
+        mom_evol_(π_, Δt);
+        pos_evol_(π_, Δt);
+      }
+      mom_evol_(π_, Δt);
+      pos_evol_(π_, Δt/2.);
+      double ΔS = act() - S, ΔH = 0.;
+      for (int x = 0; x < L_total_; x ++) ΔH += (π_[x]*π_[x] - π[x]*π[x]).sum();
+      ΔH = .5*ΔH + ΔS;
+      if (ΔH <= 0. || standard_uniform(r) < exp(-ΔH))
+      {
+        S += ΔS;
+        return 1;
+      }
+      else
+      {
+        φ_ = φ;
+        return 0;
+      }
     }
 };
 

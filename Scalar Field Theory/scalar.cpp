@@ -42,6 +42,16 @@ class Field
       return γ;
     }
 
+    void pos_evol_(const vector<double>& π_, const double& ε)
+    {
+      for (int x = 0; x < L_total_; x ++) φ_[x] += ε*π_[x];
+    }
+    void mom_evol_(vector<double>& π_, const double& ε) const
+    {
+      double κ2in = 2.*d_ + m_*m_;
+      for (int x = 0; x < L_total_; x ++) π_[x] -= ε*(κ2in*φ_[x] - gamma_(x) + 4.*λ_*pow(φ_[x], 3.));
+    }
+
   public:
     Field(const vector<int>& L, const double& m, const double& λ) : d_(L.size()), L_total_(1), L_(d_), m_(m), λ_(λ), φ_(0), nei_(0)
     {
@@ -143,6 +153,33 @@ class Field
         S += (pow(prop - κ2γ, 2.) - pow(curr - κ2γ, 2.))/(2*κ2) + rej_term - λ_*pow(curr, 4.);
       }
       return double(L_total_)/gen;
+    }
+    double HMC_Sweep(double& S, const double& Δt, const int& Nt)
+    {
+      vector<double> π_(L_total_);
+      for (int x = 0; x < L_total_; x ++) π_[x] = standard_normal(r);
+      vector<double> π = π_, φ = φ_;
+      pos_evol_(π_, Δt/2.);
+      for (int nt = 1; nt < Nt; nt ++)
+      {
+        mom_evol_(π_, Δt);
+        pos_evol_(π_, Δt);
+      }
+      mom_evol_(π_, Δt);
+      pos_evol_(π_, Δt/2.);
+      double ΔS = act() - S, ΔH = 0.;
+      for (int x = 0; x < L_total_; x ++) ΔH += π_[x]*π_[x] - π[x]*π[x];
+      ΔH = .5*ΔH + ΔS;
+      if (ΔH <= 0. || standard_uniform(r) < exp(-ΔH))
+      {
+        S += ΔS;
+        return 1.;
+      }
+      else
+      {
+        φ_ = φ;
+        return 0.;
+      }
     }
 };
 
