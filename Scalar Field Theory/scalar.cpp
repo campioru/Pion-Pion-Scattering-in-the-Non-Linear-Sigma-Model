@@ -14,7 +14,7 @@ class Field
   private:
     int d_, L_total_;
     vector<int> L_;
-    double m_;
+    double m_, λ_;
     vector<double> φ_;
     vector<vector<int>> nei_;
 
@@ -43,7 +43,7 @@ class Field
     }
 
   public:
-    Field(const vector<int>& L, const double& m) : d_(L.size()), L_total_(1), L_(d_), m_(m), φ_(0), nei_(0)
+    Field(const vector<int>& L, const double& m, const double& λ) : d_(L.size()), L_total_(1), L_(d_), m_(m), λ_(λ), φ_(0), nei_(0)
     {
       L_ = L;
       for (int d = 0; d < d_; d ++) L_total_ *= L_[d];
@@ -79,6 +79,8 @@ class Field
     double  operator() (const int& x) const { return φ_[x]; }
     double& m()       { return m_; }
     double  m() const { return m_; }
+    double& lambda()       { return λ_; }
+    double  lambda() const { return λ_; }
     int d() const { return d_; }
     int L_total() const { return L_total_; }
     vector<int> L()             const { return L_;    }
@@ -88,7 +90,7 @@ class Field
     double act() const
     {
       double S = 0., fac = d_ + m_*m_/2.;
-      for (int x = 0; x < L_total_; x ++) S += φ_[x] * (fac*φ_[x] - gamma_pos_(x));
+      for (int x = 0; x < L_total_; x ++) S += φ_[x] * (fac*φ_[x] - gamma_pos_(x)) + λ_*pow(φ_[x], 4.);
       return S;
     }
     vector<double> Phi() const
@@ -111,7 +113,7 @@ class Field
         double curr = φ_[x];
         double prop = curr + 2*ε*standard_uniform(r) - ε;
         double κ2γ = κ2*gamma_(x);
-        double ΔS = (pow(prop - κ2γ, 2.) - pow(curr - κ2γ, 2.))/(2*κ2);
+        double ΔS = (pow(prop - κ2γ, 2.) - pow(curr - κ2γ, 2.))/(2*κ2) + λ_*(pow(prop, 4.) - pow(curr, 4.));
         if (ΔS <= 0. || standard_uniform(r) < exp(-ΔS))
         {
           φ_[x] = prop;
@@ -121,18 +123,26 @@ class Field
       }
       return α/L_total_;
     }
-    void GS_Sweep(double& S)
+    double GS_Sweep(double& S)
     {
+      double gen = 0;
       double κ = kappa();
       double κ2 = κ*κ;
       for (int x = 0; x < L_total_; x ++)
       {
+        double prop, rej_term;
         double κ2γ = κ2*gamma_(x);
-        double prop = κ*standard_normal(r) + κ2γ;
+        do
+        {
+          prop = κ*standard_normal(r) + κ2γ;
+          gen += 1;
+          rej_term = λ_*pow(prop, 4.);
+        } while (standard_uniform(r) > exp(-rej_term));
         double curr = φ_[x];
         φ_[x] = prop;
-        S += (pow(prop - κ2γ, 2.) - pow(curr - κ2γ, 2.))/(2*κ2);
+        S += (pow(prop - κ2γ, 2.) - pow(curr - κ2γ, 2.))/(2*κ2) + rej_term - λ_*pow(curr, 4.);
       }
+      return double(L_total_)/gen;
     }
 };
 
