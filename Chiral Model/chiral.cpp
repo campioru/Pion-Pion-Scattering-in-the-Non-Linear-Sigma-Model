@@ -120,6 +120,25 @@ class Field
       return Φ;
     }
 
+    int MA_Sweep(double& S)
+    {
+      int α = 0;
+      for (int x = 0; x < L_total_; x ++)
+      {
+        valarray<double> prop(4);
+        for (int i = 0; i < 4; i ++) prop[i] = standard_normal(r);
+        prop /= sqrt((prop*prop).sum());
+        double ΔS = β_*((Sigma_(x)*(φ_[x].comp() - prop)).sum());
+        if (ΔS <= 0. || standard_uniform(r) < exp(-ΔS))
+        {
+          φ_[x] = SU2(prop);
+          S += ΔS;
+          α += 1;
+        }
+      }
+      return α;
+    }
+
     int GS_Sweep(double& S)
     {
       int gen = 0;
